@@ -80,43 +80,67 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
   };
 
   const generateBoxplotData = (data: number[]) => {
-    if (!stats) return;
-    
-    const sortedData = [...data].sort((a, b) => a - b);
-    const { q1, q3, iqr, median } = stats;
-    
-    // 计算异常值边界
-    const lowerBound = q1 - iqrMultiplier * iqr;
-    const upperBound = q3 + iqrMultiplier * iqr;
-    
     try {
+      if (!stats) {
+        console.log('Stats is null, skipping boxplot data generation');
+        return;
+      }
+      
+      if (!data || data.length === 0) {
+        console.log('Empty dataset, skipping boxplot data generation');
+        setBoxplotData([]);
+        return;
+      }
+      
+      const sortedData = [...data].sort((a, b) => a - b);
+      
+      // 安全地解构 stats 对象
+      const q1 = stats.q1 || 0;
+      const q3 = stats.q3 || 0;
+      const iqr = stats.iqr || 0;
+      const median = stats.median || 0;
+      
+      // 计算异常值边界 - 增加安全检查
+      const lowerBound = q1 - iqrMultiplier * iqr;
+      const upperBound = q3 + iqrMultiplier * iqr;
+      
       // 找出正常值的范围（不包含异常值）
       const nonOutliers = sortedData.filter(val => val >= lowerBound && val <= upperBound);
-      const boxMin = nonOutliers.length > 0 ? Math.min(...nonOutliers) : q1;
-      const boxMax = nonOutliers.length > 0 ? Math.max(...nonOutliers) : q3;
+      
+      // 安全地计算最小值和最大值
+      let boxMin = q1;
+      let boxMax = q3;
+      
+      if (nonOutliers.length > 0) {
+        boxMin = Math.min(...nonOutliers);
+        boxMax = Math.max(...nonOutliers);
+      }
       
       // 收集异常值
-      const outliers = sortedData.filter(val => val < lowerBound || val > upperBound);
+      const outliers = showOutliers ? sortedData.filter(val => val < lowerBound || val > upperBound) : [];
       
-      setBoxplotData([{
+      // 确保所有数值都是有效的数字
+      const safeBoxplotData = [{
         name: '数据分布',
-        min: boxMin,
-        q1: q1,
-        median: median,
-        q3: q3,
-        max: boxMax,
-        outliers: showOutliers ? outliers : []
-      }]);
+        min: isNaN(boxMin) ? q1 : boxMin,
+        q1: isNaN(q1) ? 0 : q1,
+        median: isNaN(median) ? 0 : median,
+        q3: isNaN(q3) ? 0 : q3,
+        max: isNaN(boxMax) ? q3 : boxMax,
+        outliers: Array.isArray(outliers) ? outliers.filter(val => !isNaN(val)) : []
+      }];
+      
+      setBoxplotData(safeBoxplotData);
     } catch (error) {
       console.error('生成箱线图数据时出错:', error);
       // 提供默认值以防止白屏
       setBoxplotData([{
         name: '数据分布',
-        min: q1 - iqr,
-        q1: q1,
-        median: median,
-        q3: q3,
-        max: q3 + iqr,
+        min: 0,
+        q1: 0,
+        median: 0,
+        q3: 0,
+        max: 0,
         outliers: []
       }]);
     }
@@ -303,58 +327,76 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
                 <Bar dataKey={(entry) => entry.q3 - entry.q1} stackId="a" fill="#3b82f6" />
                 
                 {/* 中位数线 */}
-                {boxplotData.map((entry, index) => (
+                {boxplotData && boxplotData.length > 0 && boxplotData.map((entry, index) => (
                   <ReferenceLine
                 key={`median-${index}`}
                 y={index}
                 yAxisId="left"
                 stroke="#ef4444"
                 strokeWidth={2}
-                value={entry.median.toString()}
+                values={[typeof entry.median === 'number' ? entry.median : 0]}
               />
                 ))}
                 
                 {/* 须线 */}
-                {boxplotData.map((entry, index) => (
-                  <React.Fragment key={`whiskers-${index}`}>
-                    <Line
-                      dataKey="min"
-                      type="monotone"
-                      stroke="#000"
-                      strokeWidth={1}
-                      dot={false}
-                      data={[
-                        { name: entry.name, min: entry.min, y: index },
-                        { name: entry.name, min: entry.q1, y: index }
-                      ]}
-                    />
-                    <Line
-                      dataKey="max"
-                      type="monotone"
-                      stroke="#000"
-                      strokeWidth={1}
-                      dot={false}
-                      data={[
-                        { name: entry.name, max: entry.q3, y: index },
-                        { name: entry.name, max: entry.max, y: index }
-                      ]}
-                    />
-                  </React.Fragment>
-                ))}
+                {boxplotData && boxplotData.length > 0 && boxplotData.map((entry, index) => {
+                  // 确保 entry 包含所有必要的有效数字属性
+                  const validEntry = {
+                    name: entry.name || '数据分布',
+                    min: typeof entry.min === 'number' && !isNaN(entry.min) ? entry.min : 0,
+                    q1: typeof entry.q1 === 'number' && !isNaN(entry.q1) ? entry.q1 : 0,
+                    q3: typeof entry.q3 === 'number' && !isNaN(entry.q3) ? entry.q3 : 0,
+                    max: typeof entry.max === 'number' && !isNaN(entry.max) ? entry.max : 0
+                  };
+                  
+                  return (
+                    <React.Fragment key={`whiskers-${index}`}>
+                      <Line
+                        dataKey="min"
+                        type="monotone"
+                        stroke="#000"
+                        strokeWidth={1}
+                        dot={false}
+                        data={[
+                          { name: validEntry.name, min: validEntry.min, y: index },
+                          { name: validEntry.name, min: validEntry.q1, y: index }
+                        ]}
+                      />
+                      <Line
+                        dataKey="max"
+                        type="monotone"
+                        stroke="#000"
+                        strokeWidth={1}
+                        dot={false}
+                        data={[
+                          { name: validEntry.name, max: validEntry.q3, y: index },
+                          { name: validEntry.name, max: validEntry.max, y: index }
+                        ]}
+                      />
+                    </React.Fragment>
+                  );
+                })}
                 
                 {/* 异常值 */}
-                {boxplotData.length > 0 && boxplotData[0].outliers.length > 0 && (
+                {boxplotData && boxplotData.length > 0 && 
+                  boxplotData[0].outliers && 
+                  boxplotData[0].outliers.length > 0 && (
                   <ScatterChart>
                     <ZAxis type="number" range={[60, 60]} />
                     <Scatter
-                      data={boxplotData.flatMap((entry, index) =>
-                        entry.outliers.map((outlier, i) => ({
-                          name: entry.name,
-                          value: outlier,
-                          y: index,
-                          key: `outlier-${index}-${i}`
-                        }))
-                      )}
+                      data={boxplotData.flatMap((entry, index) => {
+                        if (!entry.outliers || !Array.isArray(entry.outliers)) {
+                          return [];
+                        }
+                        return entry.outliers
+                          .filter(outlier => typeof outlier === 'number' && !isNaN(outlier))
+                          .map((outlier, i) => ({
+                            name: entry.name || '数据分布',
+                            value: outlier,
+                            y: index,
+                            key: `outlier-${index}-${i}`
+                          }));
+                      })}
                       fill="#ef4444"
                     />
                   </ScatterChart>
