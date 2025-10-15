@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   root: 'src/client',
-  base: '/AIE1901project/', // 项目在GitHub上的仓库名称
+  base: '/AIE1901project/', // 正确的GitHub Pages基础路径
   build: {
     outDir: '../../dist/client',
     emptyOutDir: true

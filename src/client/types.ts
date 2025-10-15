@@ -51,3 +51,10 @@ export interface EstimationResult {
   method: string;
   params: Record<string, number>;
 }
+
+/**
+ * 置信区间分析标签页组件属性
+ */
+export interface ConfidenceIntervalTabProps {
+  dataset: number[];
+}

@@ -2,6 +2,171 @@
 // 导入math库已移除，因为当前实现不再需要
 
 /**
+ * 计算t分布临界值（近似计算）
+ * @param degreesOfFreedom 自由度
+ * @param confidenceLevel 置信水平
+ * @returns t分布临界值
+ */
+export const calculateTCriticalValue = (degreesOfFreedom: number, confidenceLevel: number): number => {
+  // 简化版t分布临界值计算
+  // 实际应用中可能需要更精确的方法或使用统计库
+  const alpha = 1 - confidenceLevel;
+  const tailProbability = alpha / 2;
+  
+  // 使用近似公式计算t临界值
+  // 对于大自由度，接近z分布临界值
+  if (degreesOfFreedom >= 1000) {
+    if (confidenceLevel === 0.90) return 1.645;
+    if (confidenceLevel === 0.95) return 1.96;
+    if (confidenceLevel === 0.99) return 2.576;
+  }
+  
+  // 对于中小自由度的近似值
+  // 这里使用简化的近似公式
+  const z = confidenceLevel === 0.90 ? 1.645 : 
+            confidenceLevel === 0.95 ? 1.96 : 2.576;
+  
+  const t = z * (1 + z * z / (4 * degreesOfFreedom));
+  return Math.max(1.0, t); // 确保至少为1.0
+};
+
+/**
+ * 计算z分布临界值
+ * @param confidenceLevel 置信水平
+ * @returns z分布临界值
+ */
+export const calculateZCriticalValue = (confidenceLevel: number): number => {
+  // 根据置信水平返回对应的z临界值
+  if (confidenceLevel === 0.90) return 1.645;
+  if (confidenceLevel === 0.95) return 1.96;
+  if (confidenceLevel === 0.99) return 2.576;
+  
+  // 对于其他置信水平，这里使用近似值
+  // 实际应用中可能需要更精确的方法
+  const alpha = 1 - confidenceLevel;
+  const tailProbability = alpha / 2;
+  
+  // 使用经验公式近似z值
+  if (tailProbability > 0.0001) {
+    // 简化的近似公式
+    const z = Math.sqrt(-2 * Math.log(tailProbability)) * 
+              (1 - 1/(2 * Math.pow(-2 * Math.log(tailProbability), 2)));
+    return Math.max(1.0, Math.min(4.0, z));
+  }
+  
+  return 3.89; // 对于极小的尾概率，返回近似值
+};
+
+/**
+ * 计算均值的置信区间
+ * @param data 数据数组
+ * @param confidenceLevel 置信水平（0-1），默认0.95
+ * @param populationVarianceKnown 是否已知总体方差
+ * @param assumedPopulationVariance 假设的总体方差（如果已知）
+ * @returns 包含置信下限、上限和边际误差的对象
+ */
+export const calculateMeanConfidenceInterval = (
+  data: number[],
+  confidenceLevel: number = 0.95,
+  populationVarianceKnown: boolean = false,
+  assumedPopulationVariance?: number
+): { 
+  lower: number; 
+  upper: number; 
+  marginOfError: number; 
+  method: string;
+  criticalValue: number;
+  standardError: number;
+  sampleSize: number;
+  isLargeSample: boolean;
+} => {
+  if (!data || data.length === 0) {
+    throw new Error('数据数组不能为空');
+  }
+
+  const n = data.length;
+  const mean = data.reduce((sum, val) => sum + val, 0) / n;
+  const sampleVariance = data.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (n - 1);
+  const sampleStd = Math.sqrt(sampleVariance);
+  
+  // 判断样本量大小（通常n >= 30视为大样本）
+  const isLargeSample = n >= 30;
+  let criticalValue: number;
+  let standardError: number;
+  let method: string;
+  
+  if (populationVarianceKnown && assumedPopulationVariance !== undefined) {
+    // 总体方差已知情况，使用z分布
+    criticalValue = calculateZCriticalValue(confidenceLevel);
+    standardError = Math.sqrt(assumedPopulationVariance) / Math.sqrt(n);
+    method = '总体方差已知，使用z分布';
+  } else {
+    if (isLargeSample) {
+      // 大样本情况下，即使总体方差未知，也可以使用z分布近似
+      criticalValue = calculateZCriticalValue(confidenceLevel);
+      standardError = sampleStd / Math.sqrt(n);
+      method = '大样本，总体方差未知，使用z分布近似';
+    } else {
+      // 小样本情况下，总体方差未知，使用t分布
+      const degreesOfFreedom = n - 1;
+      criticalValue = calculateTCriticalValue(degreesOfFreedom, confidenceLevel);
+      standardError = sampleStd / Math.sqrt(n);
+      method = '小样本，总体方差未知，使用t分布';
+    }
+  }
+  
+  const marginOfError = criticalValue * standardError;
+  
+  return {
+    lower: mean - marginOfError,
+    upper: mean + marginOfError,
+    marginOfError,
+    method,
+    criticalValue,
+    standardError,
+    sampleSize: n,
+    isLargeSample
+  };
+};
+
+/**
+ * 计算比例的置信区间（二项分布）
+ * @param successes 成功次数
+ * @param trials 试验总次数
+ * @param confidenceLevel 置信水平
+ * @returns 置信区间对象
+ */
+export const calculateProportionConfidenceInterval = (
+  successes: number,
+  trials: number,
+  confidenceLevel: number = 0.95
+): { lower: number; upper: number; marginOfError: number } => {
+  if (trials <= 0 || successes < 0 || successes > trials) {
+    throw new Error('无效的成功次数或试验次数');
+  }
+  
+  const proportion = successes / trials;
+  
+  // 使用z分布临界值
+  let criticalValue = 1.96; // 默认95%置信水平
+  if (confidenceLevel === 0.90) criticalValue = 1.645;
+  if (confidenceLevel === 0.99) criticalValue = 2.576;
+  
+  const standardError = Math.sqrt((proportion * (1 - proportion)) / trials);
+  const marginOfError = criticalValue * standardError;
+  
+  // 确保置信区间在[0, 1]范围内
+  const lower = Math.max(0, proportion - marginOfError);
+  const upper = Math.min(1, proportion + marginOfError);
+  
+  return {
+    lower,
+    upper,
+    marginOfError
+  };
+};
+
+/**
  * 计算MLE估计
  */
 export const calculateMLE = (data: number[], distType: string): Record<string, number> => {

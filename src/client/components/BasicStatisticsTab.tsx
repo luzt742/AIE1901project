@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Box, Text, Grid, GridItem, Card, CardBody } from '@chakra-ui/react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { Box, Text, Grid, GridItem, Card, CardBody, Slider, SliderTrack, SliderFilledTrack, SliderThumb, FormLabel } from '@chakra-ui/react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ReferenceLine, ScatterChart, Scatter, ZAxis } from 'recharts';
 import { BasicStatisticsTabProps } from '../types';
 import { calculateMean, calculateMedian, calculateMode, calculateVariance, calculateStd, calculateQuartiles, generateHistogramData as utilsGenerateHistogramData } from '../utils/statistics';
 
@@ -21,14 +21,18 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
   
   const [histogramData, setHistogramData] = useState<{ name: string; value: number }[]>([]);
   const [timeSeriesData, setTimeSeriesData] = useState<{ index: number; value: number }[]>([]);
+  const [boxplotData, setBoxplotData] = useState<{ name: string; min: number; q1: number; median: number; q3: number; max: number; outliers: number[] }[]>([]);
+  const [iqrMultiplier, setIqrMultiplier] = useState<number>(1.5); // 异常值检测阈值
+  const [showOutliers, setShowOutliers] = useState<boolean>(true); // 是否显示异常值
 
   useEffect(() => {
     if (dataset && dataset.length > 0) {
       calculateStats(dataset);
       generateHistogramData(dataset);
       generateTimeSeriesData(dataset);
+      generateBoxplotData(dataset);
     }
-  }, [dataset]);
+  }, [dataset, iqrMultiplier, showOutliers]);
 
   const calculateStats = (data: number[]) => {
     const sortedData = [...data].sort((a, b) => a - b);
@@ -73,6 +77,59 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
       value,
     }));
     setTimeSeriesData(timeData);
+  };
+
+  const generateBoxplotData = (data: number[]) => {
+    if (!stats) return;
+    
+    const sortedData = [...data].sort((a, b) => a - b);
+    const { q1, q3, iqr, median } = stats;
+    
+    // 计算异常值边界
+    const lowerBound = q1 - iqrMultiplier * iqr;
+    const upperBound = q3 + iqrMultiplier * iqr;
+    
+    try {
+      // 找出正常值的范围（不包含异常值）
+      const nonOutliers = sortedData.filter(val => val >= lowerBound && val <= upperBound);
+      const boxMin = nonOutliers.length > 0 ? Math.min(...nonOutliers) : q1;
+      const boxMax = nonOutliers.length > 0 ? Math.max(...nonOutliers) : q3;
+      
+      // 收集异常值
+      const outliers = sortedData.filter(val => val < lowerBound || val > upperBound);
+      
+      setBoxplotData([{
+        name: '数据分布',
+        min: boxMin,
+        q1: q1,
+        median: median,
+        q3: q3,
+        max: boxMax,
+        outliers: showOutliers ? outliers : []
+      }]);
+    } catch (error) {
+      console.error('生成箱线图数据时出错:', error);
+      // 提供默认值以防止白屏
+      setBoxplotData([{
+        name: '数据分布',
+        min: q1 - iqr,
+        q1: q1,
+        median: median,
+        q3: q3,
+        max: q3 + iqr,
+        outliers: []
+      }]);
+    }
+  };
+
+  // 处理IQR乘数变化
+  const handleIqrMultiplierChange = (val: number) => {
+    setIqrMultiplier(val);
+  };
+
+  // 处理是否显示异常值变化
+  const handleShowOutliersChange = (checked: boolean) => {
+    setShowOutliers(checked);
   };
 
   if (!stats) {
@@ -134,7 +191,7 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
         </Card>
       </Grid>
       
-      <Grid templateColumns="1fr 1fr" gap={6}>
+      <Grid templateColumns="1fr 1fr" gap={6} mb={6}>
         <GridItem>
           <Text fontSize="lg" fontWeight="bold" mb={4}>直方图</Text>
           <Box height="400px" width="100%">
@@ -161,6 +218,148 @@ function BasicStatisticsTab({ dataset }: BasicStatisticsTabProps) {
                 <Tooltip />
                 <Line type="monotone" dataKey="value" stroke="#8884d8" />
               </LineChart>
+            </ResponsiveContainer>
+          </Box>
+        </GridItem>
+      </Grid>
+
+      {/* 箱线图区域 */}
+      <Grid templateColumns="1fr 3fr" gap={6}>
+        <GridItem>
+          <Card>
+            <CardBody>
+              <Text fontSize="lg" fontWeight="bold" mb={4}>箱线图设置</Text>
+              
+              {/* 异常值检测阈值设置 */}
+              <div style={{ marginBottom: '16px' }}>
+                <FormLabel>异常值检测阈值: {iqrMultiplier.toFixed(1)} × IQR</FormLabel>
+                <Slider
+                  min={1.0}
+                  max={3.0}
+                  step={0.1}
+                  value={iqrMultiplier}
+                  onChange={handleIqrMultiplierChange}
+                >
+                  <SliderTrack>
+                    <SliderFilledTrack />
+                  </SliderTrack>
+                  <SliderThumb />
+                </Slider>
+                <Text fontSize="sm" color="gray.500">
+                  调整用于检测异常值的IQR倍数
+                </Text>
+              </div>
+
+              {/* 显示异常值选项 */}
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: '16px' }}>
+                <input
+                  type="checkbox"
+                  checked={showOutliers}
+                  onChange={(e) => handleShowOutliersChange(e.target.checked)}
+                  style={{ marginRight: '8px' }}
+                />
+                <FormLabel style={{ margin: 0 }}>
+                  显示异常值
+                </FormLabel>
+              </div>
+            </CardBody>
+          </Card>
+        </GridItem>
+
+        <GridItem>
+          <Text fontSize="lg" fontWeight="bold" mb={4}>箱线图</Text>
+          <Box height="400px" width="100%">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={boxplotData}
+                margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" domain={['dataMin - 10%', 'dataMax + 10%']} />
+                <YAxis type="category" dataKey="name" width={80} />
+                <Tooltip content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                      <div style={{ backgroundColor: 'white', border: '1px solid #ccc', padding: '10px', borderRadius: '4px' }}>
+                        <p style={{ fontWeight: 'bold', marginBottom: '5px' }}>{data.name}</p>
+                        <p>最小值: {data.min.toFixed(4)}</p>
+                        <p>Q1: {data.q1.toFixed(4)}</p>
+                        <p>中位数: {data.median.toFixed(4)}</p>
+                        <p>Q3: {data.q3.toFixed(4)}</p>
+                        <p>最大值: {data.max.toFixed(4)}</p>
+                        {data.outliers.length > 0 && (
+                          <p>异常值数量: {data.outliers.length}</p>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                }} />
+                
+                {/* 箱体 */}
+                <Bar dataKey="q1" stackId="a" fill="transparent" hide />
+                <Bar dataKey={(entry) => entry.q3 - entry.q1} stackId="a" fill="#3b82f6" />
+                
+                {/* 中位数线 */}
+                {boxplotData.map((entry, index) => (
+                  <ReferenceLine
+                key={`median-${index}`}
+                y={index}
+                yAxisId="left"
+                stroke="#ef4444"
+                strokeWidth={2}
+                value={entry.median.toString()}
+              />
+                ))}
+                
+                {/* 须线 */}
+                {boxplotData.map((entry, index) => (
+                  <React.Fragment key={`whiskers-${index}`}>
+                    <Line
+                      dataKey="min"
+                      type="monotone"
+                      stroke="#000"
+                      strokeWidth={1}
+                      dot={false}
+                      data={[
+                        { name: entry.name, min: entry.min, y: index },
+                        { name: entry.name, min: entry.q1, y: index }
+                      ]}
+                    />
+                    <Line
+                      dataKey="max"
+                      type="monotone"
+                      stroke="#000"
+                      strokeWidth={1}
+                      dot={false}
+                      data={[
+                        { name: entry.name, max: entry.q3, y: index },
+                        { name: entry.name, max: entry.max, y: index }
+                      ]}
+                    />
+                  </React.Fragment>
+                ))}
+                
+                {/* 异常值 */}
+                {boxplotData.length > 0 && boxplotData[0].outliers.length > 0 && (
+                  <ScatterChart>
+                    <ZAxis type="number" range={[60, 60]} />
+                    <Scatter
+                      data={boxplotData.flatMap((entry, index) =>
+                        entry.outliers.map((outlier, i) => ({
+                          name: entry.name,
+                          value: outlier,
+                          y: index,
+                          key: `outlier-${index}-${i}`
+                        }))
+                      )}
+                      fill="#ef4444"
+                    />
+                  </ScatterChart>
+                )}
+              </BarChart>
             </ResponsiveContainer>
           </Box>
         </GridItem>
